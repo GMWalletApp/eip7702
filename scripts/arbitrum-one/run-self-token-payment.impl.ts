@@ -1,4 +1,4 @@
-import { sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
+import { prepareRelayerRoute, selfAuthorizationNonce, sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   createWalletClient,
@@ -193,12 +193,14 @@ if (isDryRun()) {
   process.exit(0);
 }
 
+const route = await prepareRelayerRoute(prefix, chainId, userAccount.address);
 const authorizationList = needsAuthorization
   ? [
       await userWalletClient.signAuthorization({
         account: userAccount,
         contractAddress: accountImplementation,
         executor: "self",
+        nonce: selfAuthorizationNonce(route, userAccount.address),
       }),
     ]
   : undefined;
@@ -212,9 +214,9 @@ const transaction = {
   data,
   ...(authorizationList === undefined ? {} : { authorizationList }),
 } as const;
-const submission = await sendRelayerTransaction(prefix, chainId, {
+const submission = await sendRelayerTransaction(route, {
   sendDirect: () => userWalletClient.sendTransaction(transaction),
-  sign: async () => userWalletClient.signTransaction(await userWalletClient.prepareTransactionRequest(transaction)),
+  sign: async (nonce) => userWalletClient.signTransaction(await userWalletClient.prepareTransactionRequest({ ...transaction, nonce })),
 });
 const { hash } = submission;
 console.log(`Arbiscan: https://arbiscan.io/tx/${hash}`);

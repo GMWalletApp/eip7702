@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { keccak256, parseTransaction, type Hash } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { sendRelayerTransaction, verifyRelayerReceipt } from "../scripts/relayer-broadcast.js";
+import { prepareRelayerRoute, selfAuthorizationNonce, sendRelayerTransaction, verifyRelayerReceipt } from "../scripts/relayer-broadcast.js";
 
 const blockHash: Hash = `0x${"aa".repeat(32)}`;
 const otherHash: Hash = `0x${"bb".repeat(32)}`;
@@ -10,7 +10,7 @@ const sponsor = privateKeyToAccount(generatePrivateKey());
 const user = privateKeyToAccount(generatePrivateKey());
 const authorization = await user.signAuthorization({ chainId: 1, nonce: 0, contractAddress: sponsor.address });
 const raw = await sponsor.signTransaction({
-  type: "eip7702", chainId: 1, nonce: 0, to: user.address, authorizationList: [authorization],
+  type: "eip7702", chainId: 1, nonce: 22, to: user.address, authorizationList: [authorization],
   gas: 80_000n, maxFeePerGas: 2n, maxPriorityFeePerGas: 1n,
 });
 const hash = keccak256(raw);
@@ -35,6 +35,10 @@ describe("Broadcaster relayer submission", () => {
       t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
         assert.equal(new Headers(options.headers).get("authorization"), "Bearer test-merchant");
         assert.equal(options.redirect, "error");
+        if (url.includes("/accounts/")) {
+          assert.equal(url, `http://localhost:8080/internal/accounts/${sponsor.address}/nonce?chainId=1`);
+          return Response.json({chainId:"1", address:sponsor.address.toLowerCase(), blockTag:"latest", chainNonce:"20", nonce:"22"});
+        }
         if (options.method === "POST") {
           sends++;
           assert.equal(url, "http://localhost:8080/internal/transactions?chainId=1");
@@ -52,9 +56,12 @@ describe("Broadcaster relayer submission", () => {
           winningHash: scenario === "different winner" ? otherHash : hash, evidence:{blockHash},
         });
       });
-      const result = sendRelayerTransaction("ETHEREUM", 1, {
+      const route = await prepareRelayerRoute("ETHEREUM", 1, sponsor.address);
+      assert.equal(selfAuthorizationNonce(route, sponsor.address), 23);
+      assert.equal(selfAuthorizationNonce(route, user.address), undefined);
+      const result = sendRelayerTransaction(route, {
         sendDirect: () => assert.fail("unexpected RPC broadcast"),
-        sign: async () => { signs++; return raw; },
+        sign: async (nonce) => { assert.equal(nonce,22); signs++; return raw; },
       });
       if (scenario === "accepted" || scenario === "lost acknowledgement") {
         const submission = await result;

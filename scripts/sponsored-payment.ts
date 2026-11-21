@@ -1,4 +1,4 @@
-import { sendRelayerTransaction, verifyRelayerReceipt } from "./relayer-broadcast.js";
+import { prepareRelayerRoute, selfAuthorizationNonce, sendRelayerTransaction, verifyRelayerReceipt } from "./relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   createWalletClient,
@@ -329,10 +329,12 @@ export async function runSponsoredTokenPayment(chainConfig: SponsoredPaymentChai
   });
 
   console.log("Signing EIP-7702 authorization with user...");
+  const route = simulationOnly ? undefined : await prepareRelayerRoute(prefix, chainId, sponsorAccount.address);
   const authorization = await userWalletClient.signAuthorization({
     account: userAccount,
     contractAddress: accountImplementation,
     executor: sponsorAccount,
+    nonce: selfAuthorizationNonce(route, userAccount.address),
   });
 
   const authorizationSigner = await recoverAuthorizationAddress({ authorization });
@@ -376,9 +378,9 @@ export async function runSponsoredTokenPayment(chainConfig: SponsoredPaymentChai
     authorizationList: [authorization],
     gas: estimatedGasLimit,
   } as const;
-  const submission = await sendRelayerTransaction(prefix, chainId, {
+  const submission = await sendRelayerTransaction(route, {
     sendDirect: () => sponsorWalletClient.sendTransaction(transaction),
-    sign: async () => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest(transaction)),
+    sign: async (nonce) => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest({ ...transaction, nonce })),
   });
   const { hash } = submission;
   console.log(chainConfig.explorerTxUrl(hash));

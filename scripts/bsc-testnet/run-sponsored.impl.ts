@@ -1,4 +1,4 @@
-import { sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
+import { prepareRelayerRoute, selfAuthorizationNonce, sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   concat,
@@ -176,10 +176,12 @@ const userSignature = await userWalletClient.signTypedData({
 });
 
 console.log("Signing EIP-7702 authorization with user...");
+const route = await prepareRelayerRoute(prefix, chainId, sponsorAccount.address);
 const authorization = await userWalletClient.signAuthorization({
   account: userAccount,
   contractAddress: accountImplementation,
   executor: sponsorAccount,
+  nonce: selfAuthorizationNonce(route, userAccount.address),
 });
 
 const data = encodeFunctionData({
@@ -195,9 +197,9 @@ const transaction = {
   data,
   authorizationList: [authorization],
 } as const;
-const submission = await sendRelayerTransaction(prefix, chainId, {
+const submission = await sendRelayerTransaction(route, {
   sendDirect: () => sponsorWalletClient.sendTransaction(transaction),
-  sign: async () => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest(transaction)),
+  sign: async (nonce) => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest({ ...transaction, nonce })),
 });
 const { hash } = submission;
 

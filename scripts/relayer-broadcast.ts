@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { isHash, keccak256, parseTransaction, type Hash, type Hex } from "viem";
+import { isHash, keccak256, parseTransaction, type Address, type Hash, type Hex } from "viem";
 import { assertExpectedChainId } from "./chain-guard.js";
 import { networkEnv } from "./env-helpers.js";
 
@@ -7,7 +7,7 @@ type Submission = { hash: Hash; blockHash?: Hash };
 
 type BroadcastActions = {
   sendDirect: () => Promise<Hash>;
-  sign: () => Promise<Hex>;
+  sign: (nonce: number) => Promise<Hex>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -19,32 +19,63 @@ async function readResponse(response: Response) {
   return asRecord(await response.json().catch(() => undefined));
 }
 
-// Keep the legacy RPC transport for installations without a Broadcaster.
-// Once a Broadcaster is selected, one invocation signs exactly one envelope.
-export async function sendRelayerTransaction(
-  prefix: string,
-  chainId: number,
-  actions: BroadcastActions,
-): Promise<Submission> {
+type RelayerRoute = {
+  chainId: number;
+  sender: Address;
+  nonce: number;
+  endpoint: string;
+  headers: { Authorization: string; "Content-Type": string };
+};
+
+export async function prepareRelayerRoute(prefix: string, chainId: number, sender: Address): Promise<RelayerRoute | undefined> {
   assertExpectedChainId(prefix, chainId);
   const url = networkEnv(prefix, "BROADCASTER_URL");
   const token = networkEnv(prefix, "BROADCASTER_TOKEN");
-  if (!url && !token) {
-    const hash = await actions.sendDirect();
-    console.log(`tx: ${hash}`);
-    return { hash };
-  }
+  if (!url && !token) return undefined;
   if (!url || !token) throw new Error("Configure both BROADCASTER_URL and BROADCASTER_TOKEN");
 
   const base = new URL(url);
   if (!["https:", "http:"].includes(base.protocol) || base.username || base.password || base.search || base.hash) {
     throw new Error("Expected an HTTP(S) Broadcaster base URL without credentials, query or fragment");
   }
-  const raw = await actions.sign();
-  if (parseTransaction(raw).chainId !== chainId) throw new Error("Signed transaction chain ID mismatch");
-  const hash = keccak256(raw);
-  const endpoint = base.href.replace(/\/$/, "") + "/transactions";
+  const endpoint = base.href.replace(/\/$/, "");
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const response = await fetch(`${endpoint}/accounts/${sender}/nonce?chainId=${chainId}`, {
+    headers, redirect: "error", signal: AbortSignal.timeout(10_000),
+  });
+  const view = await readResponse(response);
+  if (!response.ok) throw new Error(`Broadcaster nonce query failed (HTTP ${response.status})`);
+  if (view?.chainId !== String(chainId) || typeof view.address !== "string" || view.address.toLowerCase() !== sender.toLowerCase()
+    || view.blockTag !== "latest" || typeof view.chainNonce !== "string" || !/^(0|[1-9][0-9]*)$/.test(view.chainNonce)
+    || typeof view.nonce !== "string" || !/^(0|[1-9][0-9]*)$/.test(view.nonce)) {
+    throw new Error("Invalid queue-aware Broadcaster nonce response");
+  }
+  const nonce = Number(view.nonce);
+  if (!Number.isSafeInteger(nonce) || BigInt(view.nonce) < BigInt(view.chainNonce)) {
+    throw new Error("Broadcaster nonce is outside the supported signing range");
+  }
+  return { chainId, sender, nonce, endpoint: endpoint + "/transactions", headers };
+}
+
+// EIP-7702 increments the outer sender first. A distinct user's authorization
+// continues to use that user's RPC nonce independently of the sponsor queue.
+export function selfAuthorizationNonce(route: RelayerRoute | undefined, authority: Address): number | undefined {
+  if (!route || route.sender.toLowerCase() !== authority.toLowerCase()) return undefined;
+  if (!Number.isSafeInteger(route.nonce + 1)) throw new Error("Authorization nonce exceeds the supported signing range");
+  return route.nonce + 1;
+}
+
+export async function sendRelayerTransaction(route: RelayerRoute | undefined, actions: BroadcastActions): Promise<Submission> {
+  if (!route) {
+    const hash = await actions.sendDirect();
+    console.log(`tx: ${hash}`);
+    return { hash };
+  }
+  const { chainId, endpoint, headers, nonce } = route;
+  const raw = await actions.sign(nonce);
+  const signed = parseTransaction(raw);
+  if (signed.chainId !== chainId || signed.nonce !== nonce) throw new Error("Signed chain ID or nonce mismatch");
+  const hash = keccak256(raw);
   const statusURL = `${endpoint}/${hash}?chainId=${chainId}`;
   // Print the identifier even if the process is interrupted during the POST.
   console.log(`signed tx hash: ${hash}`);
