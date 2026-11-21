@@ -1,3 +1,4 @@
+import { prepareRelayerRoute, selfAuthorizationNonce, sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   concat,
@@ -175,10 +176,12 @@ const userSignature = await userWalletClient.signTypedData({
 });
 
 console.log("Signing EIP-7702 authorization with user...");
+const route = await prepareRelayerRoute(prefix, chainId, sponsorAccount.address);
 const authorization = await userWalletClient.signAuthorization({
   account: userAccount,
   contractAddress: accountImplementation,
   executor: sponsorAccount,
+  nonce: selfAuthorizationNonce(route, userAccount.address),
 });
 
 const data = encodeFunctionData({
@@ -188,15 +191,20 @@ const data = encodeFunctionData({
 });
 
 console.log("Sending executeSponsored transaction through SponsorRouter from sponsor...");
-const hash = await sponsorWalletClient.sendTransaction({
+const transaction = {
   account: sponsorAccount,
   to: sponsorRouterAddress,
   data,
   authorizationList: [authorization],
+} as const;
+const submission = await sendRelayerTransaction(route, {
+  sendDirect: () => sponsorWalletClient.sendTransaction(transaction),
+  sign: async (nonce) => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest({ ...transaction, nonce })),
 });
-console.log(`tx: ${hash}`);
+const { hash } = submission;
 
 const receipt = await publicClient.waitForTransactionReceipt({ hash });
+verifyRelayerReceipt(submission, receipt);
 console.log(`status: ${receipt.status}`);
 console.log(`gasUsed: ${receipt.gasUsed}`);
 
