@@ -1,3 +1,4 @@
+import { sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   createWalletClient,
@@ -205,16 +206,21 @@ const authorizationList = needsAuthorization
 console.log("Sending executeFromSelf transaction from user...");
 console.log(`user/account: ${userAddress}`);
 console.log(`authorization: ${needsAuthorization ? "included" : "already delegated"}`);
-const hash = await userWalletClient.sendTransaction({
+const transaction = {
   account: userAccount,
   to: userAddress,
   data,
   ...(authorizationList === undefined ? {} : { authorizationList }),
+} as const;
+const submission = await sendRelayerTransaction(prefix, chainId, {
+  sendDirect: () => userWalletClient.sendTransaction(transaction),
+  sign: async () => userWalletClient.signTransaction(await userWalletClient.prepareTransactionRequest(transaction)),
 });
-console.log(`tx: ${hash}`);
+const { hash } = submission;
 console.log(`Arbiscan: https://arbiscan.io/tx/${hash}`);
 
 const receipt = await publicClient.waitForTransactionReceipt({ hash });
+verifyRelayerReceipt(submission, receipt);
 console.log(`status: ${receipt.status}`);
 console.log(`gasUsed: ${receipt.gasUsed}`);
 if (receipt.status !== "success") {

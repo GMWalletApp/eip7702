@@ -184,6 +184,14 @@ All write scripts enforce the expected chain ID. Owner-only scripts also verify
 that the configured signer is the current registry owner before sending a
 transaction.
 
+## Broadcast signed transactions through GM Wallet Broadcaster
+
+Set `BROADCASTER_URL` to the service base URL and `BROADCASTER_TOKEN` to a business client token. Network-prefixed settings such as `POLYGON_BROADCASTER_URL` follow the same precedence as the RPC settings. Use HTTPS for remote connections. The local RPC remains responsible for reads, simulation, nonce and fee estimation. A dry run or signed simulation ends before submission.
+
+For sponsored payments (including batches), the BSC testnet sponsored example, and the Arbitrum self-payment, the relayer signs the outer transaction locally and submits its serialized bytes to `POST /transactions?chainId=…`. The wallet and sponsor keys stay local. The relayer queries `GET /transactions/{hash}?chainId=…` using the hash derived from those bytes. After inclusion, it checks the RPC receipt against the reported transaction and block hashes before continuing the existing event and settlement checks.
+
+If the POST response is lost, the relayer queries the same hash. A lookup timeout, a different winning hash, or a receipt on a different block requires reconciliation before starting another payment. A nonce conflict requires checking the existing task. The CLI does not automatically switch transports, sign a replacement, or submit a new payment after an uncertain result. Leaving both settings empty selects the existing direct RPC path. ChainScanner is optional infrastructure for the Broadcaster operator; the relayer needs only the Broadcaster endpoint and token. [Broadcaster API and configuration](https://github.com/GMWalletApp/Broadcaster#readme)
+
 ## Running the self-relayer
 
 Preview a single sponsored token payment:

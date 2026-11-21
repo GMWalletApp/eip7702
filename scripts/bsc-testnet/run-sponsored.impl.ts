@@ -1,3 +1,4 @@
+import { sendRelayerTransaction, verifyRelayerReceipt } from "../relayer-broadcast.js";
 import { network } from "hardhat";
 import {
   concat,
@@ -188,15 +189,20 @@ const data = encodeFunctionData({
 });
 
 console.log("Sending executeSponsored transaction through SponsorRouter from sponsor...");
-const hash = await sponsorWalletClient.sendTransaction({
+const transaction = {
   account: sponsorAccount,
   to: sponsorRouterAddress,
   data,
   authorizationList: [authorization],
+} as const;
+const submission = await sendRelayerTransaction(prefix, chainId, {
+  sendDirect: () => sponsorWalletClient.sendTransaction(transaction),
+  sign: async () => sponsorWalletClient.signTransaction(await sponsorWalletClient.prepareTransactionRequest(transaction)),
 });
-console.log(`tx: ${hash}`);
+const { hash } = submission;
 
 const receipt = await publicClient.waitForTransactionReceipt({ hash });
+verifyRelayerReceipt(submission, receipt);
 console.log(`status: ${receipt.status}`);
 console.log(`gasUsed: ${receipt.gasUsed}`);
 

@@ -1,0 +1,111 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { isHash, keccak256, parseTransaction, type Hash, type Hex } from "viem";
+import { assertExpectedChainId } from "./chain-guard.js";
+import { networkEnv } from "./env-helpers.js";
+
+type Submission = { hash: Hash; blockHash?: Hash };
+
+type BroadcastActions = {
+  sendDirect: () => Promise<Hash>;
+  sign: () => Promise<Hex>;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+async function readResponse(response: Response) {
+  return asRecord(await response.json().catch(() => undefined));
+}
+
+// Keep the legacy RPC transport for installations without a Broadcaster.
+// Once a Broadcaster is selected, one invocation signs exactly one envelope.
+export async function sendRelayerTransaction(
+  prefix: string,
+  chainId: number,
+  actions: BroadcastActions,
+): Promise<Submission> {
+  assertExpectedChainId(prefix, chainId);
+  const url = networkEnv(prefix, "BROADCASTER_URL");
+  const token = networkEnv(prefix, "BROADCASTER_TOKEN");
+  if (!url && !token) {
+    const hash = await actions.sendDirect();
+    console.log(`tx: ${hash}`);
+    return { hash };
+  }
+  if (!url || !token) throw new Error("Configure both BROADCASTER_URL and BROADCASTER_TOKEN");
+
+  const base = new URL(url);
+  if (!["https:", "http:"].includes(base.protocol) || base.username || base.password || base.search || base.hash) {
+    throw new Error("Expected an HTTP(S) Broadcaster base URL without credentials, query or fragment");
+  }
+  const raw = await actions.sign();
+  if (parseTransaction(raw).chainId !== chainId) throw new Error("Signed transaction chain ID mismatch");
+  const hash = keccak256(raw);
+  const endpoint = base.href.replace(/\/$/, "") + "/transactions";
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const statusURL = `${endpoint}/${hash}?chainId=${chainId}`;
+  // Print the identifier even if the process is interrupted during the POST.
+  console.log(`signed tx hash: ${hash}`);
+  let response: Response | undefined;
+  try {
+    response = await fetch(`${endpoint}?chainId=${chainId}`, {
+      method: "POST", headers, body: JSON.stringify({ rawTransaction: raw }),
+      redirect: "error", signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // A lost acknowledgement can follow a committed intake. Query the local hash.
+  }
+  if (response && response.status >= 400 && response.status < 500 && response.status !== 408) {
+    const failure = await readResponse(response);
+    const code = typeof failure?.error === "string" && /^[A-Z_]{1,64}$/.test(failure.error) ? failure.error : "REQUEST_REJECTED";
+    throw new Error(`Broadcaster rejected ${hash}: HTTP ${response.status} ${code}`);
+  }
+  console.log(`tx: ${hash}`); // The canary treats an ambiguous send as unconfirmed.
+  if (response?.ok) {
+    const ack = await readResponse(response);
+    if (ack?.network !== String(chainId) || ack?.txHash !== hash || !ack.taskId) {
+      console.warn("Unverified submission acknowledgement; checking the locally signed hash.");
+    }
+  } else {
+    await response?.body?.cancel().catch(() => {});
+  }
+
+  const until = Date.now() + 120_000;
+  while (Date.now() < until) {
+    const status = await fetch(statusURL, {
+      headers, redirect: "error", signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, until - Date.now()))),
+    }).catch(() => undefined);
+    if (status?.ok) {
+      const task = await readResponse(status);
+      if (task && (task.queriedHash !== hash || task.network !== String(chainId))) {
+        throw new Error(`Broadcaster returned a different task for ${hash}`);
+      }
+      if (task?.taskState === "CLOSED") {
+        if (task.taskOutcome !== "INCLUDED") throw new Error(`Broadcaster closed ${hash}: ${task.taskOutcome}`);
+        if (task.winningHash !== hash) {
+          throw new Error(`Broadcaster included replacement ${task.winningHash}; reconcile it before crediting ${hash}`);
+        }
+        const blockHash = asRecord(task.evidence)?.blockHash;
+        if (typeof blockHash !== "string" || !isHash(blockHash)) throw new Error(`Missing inclusion block for ${hash}`);
+        return { hash, blockHash };
+      }
+    } else if (status) {
+      await status.body?.cancel().catch(() => {});
+      if ([401, 403].includes(status.status)) {
+        throw new Error(`Broadcaster status access denied for ${hash} (HTTP ${status.status})`);
+      }
+    }
+    await delay(Math.min(1_500, Math.max(0, until - Date.now())));
+  }
+  throw new Error(`Unconfirmed transaction ${hash}. Check its Broadcaster task before starting another payment.`);
+}
+
+export function verifyRelayerReceipt(
+  submitted: Submission, receipt: { transactionHash: Hash; blockHash: Hash },
+) {
+  if (submitted.blockHash && (receipt.transactionHash !== submitted.hash || receipt.blockHash !== submitted.blockHash)) {
+    throw new Error(`RPC receipt disagrees with Broadcaster inclusion for ${submitted.hash}; reconcile before crediting`);
+  }
+}
