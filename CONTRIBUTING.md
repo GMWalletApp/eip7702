@@ -1,4 +1,4 @@
-# GM Wallet Contributor Terms 2.0
+# GM Wallet Contributor Terms 2.2
 
 These terms apply to contributions intentionally submitted to this original project, **https://github.com/GMWalletApp/eip7702**, on or after the commit introducing these terms. A contribution includes original code, patches, documents, designs, tests, issue text, attachments, comments, reviews and suggestions submitted for the project in a commit, pull request, issue or other official project channel. The recipient is Good Morning Technology, LLC ("GM Wallet").
 
@@ -12,12 +12,10 @@ You may continue to use the original material you contributed under a perpetual,
 
 ## Authority and third-party materials
 
-Submit material that you own or have authority to license. Identify any third-party material, its source and license. You convey only the rights you control. If an employer or other person owns the contribution, an authorized representative of that owner must confirm its grant. Do not submit confidential information that you lack permission to disclose.
+Submit material that you own or have authority to license. Identify any third-party material, its source and license. You convey only the rights you control. If an employer or another person owns the contribution, you must have authority to submit it on their behalf and grant the rights described above. Do not submit confidential information that you lack permission to disclose.
 
-## Sign when submitting
+Submission itself constitutes acceptance, including when you submit through a commit, pull request, issue or comment. Earlier submissions remain subject to the terms that applied when they were made. For downstream modifications, see section 19 of the [project license](LICENSE).
 
-Include the following statement in the commit message, pull request, issue or a comment identifying the contribution. Replace the brackets with your name and, if applicable, the entity you represent. A signature may cover multiple commits or submissions if it expressly identifies them. Each rightsholder, or its authorized representative, confirms its own contribution.
+## Submit a released or deployed modification
 
-> I agree to GM Wallet Contributor Terms 2.0 and intend this as my electronic signature for this contribution. Signed by [full name], for [myself or legal entity].
-
-Maintainers should retain the signed submission or its permalink and revision with the contribution record. If another form of signature is required under applicable law, contact [info@gmwallet.app](mailto:info@gmwallet.app) to execute it. A previous submission requires its own applicable grant. For the rights GM Wallet receives in deployed or released modifications that are never submitted here, see section 19 of the [project license](LICENSE).
+When releasing, delivering or deploying a modified version, including a SaaS update, publish its complete corresponding source and send the exact revision upstream by that same time. Open or update a pull request against this project, or push to a dedicated branch here if you have write access. You may also post a public fork branch and its immutable commit ID in a project issue. If this repository cannot accept a pull request or issue from you, email that public branch URL and commit ID to info@gmwallet.app. Identify the release or deployment and link to its source. GM Wallet may decline or close the submission. An acknowledgement or merge is unnecessary. See sections 13 and 18 of the [project license](LICENSE).

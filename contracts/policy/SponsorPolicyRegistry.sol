@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-GM-Wallet-Community-2.0
+// SPDX-License-Identifier: LicenseRef-GM-Wallet-Community-2.2
 pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
