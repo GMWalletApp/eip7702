@@ -79,7 +79,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.1.3",
