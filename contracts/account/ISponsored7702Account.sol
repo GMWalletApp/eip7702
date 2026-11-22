@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-GM-Wallet-Community-2.0
 pragma solidity ^0.8.28;
 
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
