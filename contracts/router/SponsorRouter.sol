@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-GM-Wallet-Community-2.2
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.28;
 
 import {ISponsored7702Account} from "../account/ISponsored7702Account.sol";
